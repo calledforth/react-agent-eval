@@ -6,7 +6,6 @@ from Agent import Agent
 import requests
 from bs4 import BeautifulSoup
 import re
-import streamlit as st
 import sys
 from io import StringIO
 
@@ -186,148 +185,21 @@ class HotpotQAEval:
         }
 
 
-def run_streamlit_app():
-    # Set page to wide mode to use the full screen width
-    st.set_page_config(layout="wide")
-
-    st.title("HotpotQA Evaluation with Streamlit")
-
-    # Input section at the top of the screen
-    st.header("Configuration")
-
-    # Create three columns for inputs
-    col1, col2, col3 = st.columns([3, 1, 1])
-
-    with col1:
-        # Input section for dataset path
-        dataset_path = st.text_input(
-            "Dataset Path",
-            value="datasets\\hotpot_dev_fullwiki_v1.json",
-            help="Path to the HotpotQA dataset JSON file",
-        )
-
-    with col2:
-        # Input for number of questions
-        num_questions = st.number_input(
-            "Number of Questions",
-            min_value=0,
-            value=1,
-            help="Choose how many questions to sample from the dataset (0 for all)",
-        )
-
-    with col3:
-        # Run evaluation button (vertically centered)
-        st.write("")  # Add some space
-        run_button = st.button("Run Evaluation", use_container_width=True)
-
-    # Horizontal line to separate inputs from results
-    st.markdown("---")
-
-    # Create two columns for logs and results side by side with equal width
-    log_col, results_col = st.columns(2)
-
-    # Logs column
-    with log_col:
-        st.header("Evaluation Logs")
-        logs_area = st.empty()
-
-    # Results column
-    with results_col:
-        st.header("Evaluation Results")
-        # Container for metrics
-        results_metrics = st.container()
-        # Container for Q&A pairs with scrollable area
-        qa_container = st.container()
-        with qa_container:
-            st.subheader("Question-Answer Pairs")
-            # Create a container with fixed height and scrolling
-            qa_scroll_container = st.container()
-
-    # Run evaluation when button is clicked
-    if run_button:
-        try:
-            # Set up logging to capture output
-            orig_stdout = sys.stdout
-            log_capture = StreamlitPrintCapture(logs_area)
-            sys.stdout = log_capture
-
-            # Run the evaluation
-            with st.spinner("Evaluation in progress..."):
-                hotpot_eval = HotpotQAEval(dataset_path)
-                hotpot_eval.load_hotpotqa_dataset()
-                questions_to_evaluate = hotpot_eval.get_questions(num_questions)
-                result = hotpot_eval.eval_questions(questions_to_evaluate)
-
-            # Restore stdout
-            sys.stdout = orig_stdout
-
-            # Display results
-            with results_metrics:
-                st.metric(
-                    "Correct Answers",
-                    result["correct_answers"],
-                    f"{result['correct_answers']}/{len(questions_to_evaluate)} questions",
-                )
-
-            # Add CSS to create a scrollable container with fixed height
-            st.markdown(
-                """
-                <style>
-                .scrollable-container {
-                    height: 400px;
-                    overflow-y: auto;
-                    border: 1px solid #e6e6e6;
-                    border-radius: 5px;
-                    padding: 10px;
-                    background-color: #000000;
-                }
-                </style>
-            """,
-                unsafe_allow_html=True,
-            )
-
-            # Generate markdown for QA pairs
-            qa_text = ""
-            for idx, qa_pair in enumerate(result["question_answer_pairs"]):
-                status = "✅ VALID" if qa_pair["valid"] else "❌ INVALID"
-                qa_text += f"Question {idx+1}: {qa_pair['question']}\n\n"
-                qa_text += f"Answer: {qa_pair['answer']}\n\n"
-                qa_text += f"Status: {status}\n\n"
-                qa_text += "---\n\n"
-
-            # Display the markdown in a scrollable div
-            with qa_scroll_container:
-                st.markdown(
-                    f'<div class="scrollable-container">{qa_text}</div>',
-                    unsafe_allow_html=True,
-                )
-
-            st.success("Evaluation completed!")
-
-        except Exception as e:
-            sys.stdout = orig_stdout
-            st.error(f"An error occurred: {e}")
-
-
 if __name__ == "__main__":
-    # Check if running as script or via streamlit
-    if "streamlit" in sys.modules:
-        run_streamlit_app()
-    else:
-        # Original command-line execution path
-        dataset_path = "datasets\\hotpot_dev_fullwiki_v1.json"
-        print("ENTER NUMBER OF QUESTIONS TO RETRIEVE (0 FOR ALL):")
-        num_questions = int(input())
+    # Original command-line execution path
+    dataset_path = "datasets\\hotpot_dev_fullwiki_v1.json"
+    print("ENTER NUMBER OF QUESTIONS TO RETRIEVE (0 FOR ALL):")
+    num_questions = int(input())
 
-        try:
-            print(f"Attempting to load dataset from: {dataset_path}")
-            hotpot_eval = HotpotQAEval(dataset_path)
-            hotpot_eval.load_hotpotqa_dataset()
-            print("Obtain questions to evaluate")
-            questions_to_evaluate = hotpot_eval.get_questions(num_questions)
-            print("starting evaluation")
-            result = hotpot_eval.eval_questions(questions_to_evaluate)
-            print(result)
+    try:
+        print(f"Attempting to load dataset from: {dataset_path}")
+        hotpot_eval = HotpotQAEval(dataset_path)
+        hotpot_eval.load_hotpotqa_dataset()
+        print("Obtain questions to evaluate")
+        questions_to_evaluate = hotpot_eval.get_questions(num_questions)
+        print("starting evaluation")
+        result = hotpot_eval.eval_questions(questions_to_evaluate)
+        print(result)
 
-        except Exception as e:
-            print(f"An error occurred: {e}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
