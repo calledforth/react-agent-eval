@@ -3,6 +3,7 @@ import base64
 from openai import AzureOpenAI
 import json
 from dotenv import load_dotenv
+from wikipedia_tool import get_wikipedia_content
 
 load_dotenv()
 
@@ -139,3 +140,90 @@ Keep your responses crisp and reply to the answer based on the query provided.""
         print("KNOWLEDGE CONTEXT RECIEVED\n")
         final = json.loads(completion.to_json())
         return final["choices"][0]["message"]["content"]
+
+    def fever_chat(self, claim):
+        # Initialize Azure OpenAI Service client with key-based authentication
+        print("SENDING MESSAGE TO FEVER AGENT")
+        chat_prompt = """
+You are an intelligent fact-checking agent capable of verifying factual claims by interacting with a simulated knowledge environment. 
+
+You must follow a strict process consisting of:
+1. **Thinking** — you will reason about what information you currently have and decide what to do next.
+2. **Action** — you will select and execute actions to retrieve new information or give the final verification.
+3. Every step you can use only one action and think on one substep at a time and not attempt to verify the entire claim at once.
+---
+
+### Your Workflow:
+
+You will work in a loop of:
+1. Thinking: Reflect on what you know and what you need to verify.
+2. Action: Action to be performed.   
+---
+
+Available Actions:
+- retrieve: Request information about a specific topic, entity, or fact from Wikipedia. Use this for direct lookups about entities, events, or topics that have Wikipedia articles.
+- search: Request information about a query that may not be directly available on Wikipedia or requires general knowledge. Use this for complex questions or when you need information beyond Wikipedia.
+
+### Output Format:
+
+You must **always output a JSON object** with the following format:
+
+For intermediate steps:
+```json
+{
+    "thinking": "describe your reasoning here.",
+    "action": "retrieve: [specific entity or topic]"
+}
+
+OR
+
+```json
+{
+    "thinking": "describe your reasoning here.",
+    "action": "search: [question or query]"
+}
+
+For example:
+{
+    "thinking": "I need to find information about Elon Musk to verify his birth year.",
+    "action": "retrieve: Elon Musk"
+}
+
+OR
+
+{
+    "thinking": "I need to understand what the typical climate is in Mediterranean regions.",
+    "action": "search: What is the typical climate in Mediterranean regions?"
+}
+
+Once final verification is reached reply with the below format only:
+{
+    "verification": "your final verification here, stating whether the claim is SUPPORTS, REFUTES, or NOT ENOUGH INFO",
+    "evidence": "evidence supporting the verification"
+}
+
+Important: When providing your final verification, please use one of these three labels exactly:
+- SUPPORTS (if the claim is supported by the evidence)
+- REFUTES (if the evidence contradicts the claim)
+- NOT ENOUGH INFO (if there's insufficient evidence to determine)
+
+Remember you are only allowed a maximum of 7 rounds of thinking and action.
+So don't waste your turns on unnecessary actions and thinking, use your turns wisely.
+"""
+
+        messages = chat_prompt + claim
+
+        completion = self.client.chat.completions.create(
+            model=self.deployment,
+            messages=[{"role": "user", "content": messages}],
+            max_tokens=800,
+            temperature=0.7,
+            top_p=0.95,
+            frequency_penalty=0,
+            presence_penalty=0,
+            stop=None,
+            stream=False,
+        )
+
+        print("RECEIVED RESPONSE FROM FEVER AGENT\n")
+        return json.loads(completion.to_json())
