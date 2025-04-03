@@ -21,51 +21,110 @@ def run_streamlit_app():
 
 
 def run_hotpotqa_evaluation():
+    # Update CSS for new card design
+    st.markdown(
+        """
+        <style>
+        .eval-container {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            padding: 10px;
+        }
+        .status-bubble {
+            flex: 1;
+            border: 1px solid #4CAF50;
+            border-radius: 8px;
+            padding: 8px 15px;
+            background: #000000;
+            min-width: 200px;
+        }
+        .status-text {
+            color: #4CAF50;
+            font-size: 1.1em;
+            margin: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .metrics-grid {
+            display: flex;
+            gap: 15px;
+            margin: 0;
+        }
+        .metric-card {
+            background: #000000;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 12px 20px;
+            width: 120px;
+            text-align: center;
+        }
+        .metric-title {
+            font-size: 0.9em;
+            color: #888;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+        .metric-value {
+            font-size: 1.4em;
+            font-weight: bold;
+        }
+        .metric-correct {
+            color: #4CAF50;
+        }
+        .metric-incorrect {
+            color: #f44336;
+        }
+        .metric-percent {
+            color: #4CAF50;
+        }
+        </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
     st.header("HotpotQA Evaluation")
 
-    # Input section for configuration
-    st.subheader("Configuration")
+    # Create a compact configuration section
+    with st.expander("Configuration", expanded=True):
+        # Create three columns for inputs
+        col1, col2, col3 = st.columns([3, 1, 1])
 
-    # Create three columns for inputs
-    col1, col2, col3 = st.columns([3, 1, 1])
+        with col1:
+            # Input section for dataset path
+            dataset_path = st.text_input(
+                "Dataset Path",
+                value="datasets\\hotpot_dev_fullwiki_v1.json",
+                help="Path to the HotpotQA dataset JSON file",
+                key="hotpotqa_dataset_path",
+            )
 
-    with col1:
-        # Input section for dataset path
-        dataset_path = st.text_input(
-            "Dataset Path",
-            value="datasets\\hotpot_dev_fullwiki_v1.json",
-            help="Path to the HotpotQA dataset JSON file",
-            key="hotpotqa_dataset_path",
-        )
+        with col2:
+            # Input for number of questions
+            num_questions = st.number_input(
+                "Number of Questions",
+                min_value=0,
+                value=1,
+                help="Choose how many questions to sample from the dataset (0 for all)",
+                key="hotpotqa_num_questions",
+            )
 
-    with col2:
-        # Input for number of questions
-        num_questions = st.number_input(
-            "Number of Questions",
-            min_value=0,
-            value=1,
-            help="Choose how many questions to sample from the dataset (0 for all)",
-            key="hotpotqa_num_questions",
-        )
+        with col3:
+            # Run evaluation button (vertically centered)
+            st.write("")  # Add some space
+            run_button = st.button(
+                "Run Evaluation", use_container_width=True, key="run_hotpotqa"
+            )
 
-    with col3:
-        # Run evaluation button (vertically centered)
-        st.write("")  # Add some space
-        run_button = st.button(
-            "Run Evaluation", use_container_width=True, key="run_hotpotqa"
-        )
+    # Create a compact evaluation status bubble
+    evaluation_expander = st.expander("Evaluation Status", expanded=True)
+    with evaluation_expander:
+        # Container for status and metrics
+        status_container = st.empty()
 
-    # Horizontal line to separate inputs from results
+    # Horizontal line to separate status from results
     st.markdown("---")
-
-    # Create a status area for showing progress
-    progress_container = st.container()
-    with progress_container:
-        progress_col1, progress_col2 = st.columns(2)
-        with progress_col1:
-            progress_status = st.empty()
-        with progress_col2:
-            progress_metrics = st.empty()
 
     # Results section - we'll put results above logs now
     results_container = st.container()
@@ -75,8 +134,6 @@ def run_hotpotqa_evaluation():
         # Results column (left side)
         with result_col1:
             st.subheader("Evaluation Results")
-            # Container for metrics
-            results_metrics = st.container()
             # Container for Q&A pairs with scrollable area
             qa_container = st.container()
             with qa_container:
@@ -97,10 +154,6 @@ def run_hotpotqa_evaluation():
             log_capture = StreamlitPrintCapture(logs_area)
             sys.stdout = log_capture
 
-            # Create progress tracker
-            progress_placeholder = progress_status.empty()
-            progress_metrics_placeholder = progress_metrics.empty()
-
             # Run the evaluation
             with st.spinner("Evaluation in progress..."):
                 hotpot_eval = HotpotQAEval(dataset_path)
@@ -108,23 +161,57 @@ def run_hotpotqa_evaluation():
                 questions_to_evaluate = hotpot_eval.get_questions(num_questions)
 
                 # Display initial progress
-                progress_placeholder.info(
-                    f"Starting evaluation of {len(questions_to_evaluate)} questions..."
+                status_template = """
+                    <div class="eval-container">
+                        <div class="status-bubble">
+                            <p class="status-text">{status_text}</p>
+                        </div>
+                        <div class="metrics-grid">
+                            <div class="metric-card">
+                                <div class="metric-title">CORRECT</div>
+                                <div class="metric-value metric-correct">{correct}</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-title">INCORRECT</div>
+                                <div class="metric-value metric-incorrect">{incorrect}</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-title">ACCURACY</div>
+                                <div class="metric-value metric-percent">{accuracy}%</div>
+                            </div>
+                        </div>
+                    </div>
+                """
+
+                status_container.markdown(
+                    status_template.format(
+                        status_text="Initializing evaluation...",
+                        correct=0,
+                        incorrect=0,
+                        accuracy=0,
+                    ),
+                    unsafe_allow_html=True,
                 )
 
                 # Monkey patch the eval_questions method to update progress
                 original_eval_questions = hotpot_eval.eval_questions
 
                 def eval_questions_with_progress(questions):
+                    result = []
+                    correct_count = 0
+
                     for i, question in enumerate(questions):
-                        # Update progress display
-                        progress_placeholder.info(
-                            f"Evaluating question {i+1}/{len(questions)}: {question[:100]}..."
-                        )
-                        progress_metrics_placeholder.metric(
-                            "Progress",
-                            f"{i+1}/{len(questions)}",
-                            f"{int((i+1)/len(questions)*100)}%",
+                        # Update status and metrics with new design
+                        status_container.markdown(
+                            status_template.format(
+                                status_text="Evaluating: " + question[:100] + "...",
+                                correct=correct_count,
+                                incorrect=i + 1 - correct_count,
+                                accuracy=(
+                                    int(correct_count / (i + 1) * 100) if i > 0 else 0
+                                ),
+                            ),
+                            unsafe_allow_html=True,
                         )
 
                     return original_eval_questions(questions)
@@ -134,24 +221,27 @@ def run_hotpotqa_evaluation():
                 # Run evaluation
                 result = hotpot_eval.eval_questions(questions_to_evaluate)
 
-                # Final progress update
-                progress_placeholder.success(f"Evaluation completed successfully!")
-                progress_metrics_placeholder.metric(
-                    "Progress",
-                    f"{len(questions_to_evaluate)}/{len(questions_to_evaluate)}",
-                    "100%",
+                # Final accuracy update
+                correct_answers = result.get("correct_answers", 0)
+                incorrect_answers = len(questions_to_evaluate) - correct_answers
+                accuracy_percentage = (
+                    int((correct_answers / len(questions_to_evaluate)) * 100)
+                    if questions_to_evaluate
+                    else 0
+                )
+
+                status_container.markdown(
+                    status_template.format(
+                        status_text="Evaluation completed!",
+                        correct=correct_answers,
+                        incorrect=incorrect_answers,
+                        accuracy=accuracy_percentage,
+                    ),
+                    unsafe_allow_html=True,
                 )
 
             # Restore stdout
             sys.stdout = orig_stdout
-
-            # Display results
-            # with results_metrics:
-            #     st.metric(
-            #         "Correct Answers",
-            #         result["correct_answers"],
-            #         f"{result['correct_answers']}/{len(questions_to_evaluate)} questions",
-            #     )
 
             # Add CSS to create a scrollable container with fixed height
             st.markdown(
@@ -186,59 +276,116 @@ def run_hotpotqa_evaluation():
                     unsafe_allow_html=True,
                 )
 
-            st.success("Evaluation completed!")
-
         except Exception as e:
             sys.stdout = orig_stdout
             st.error(f"An error occurred: {e}")
 
 
 def run_fever_evaluation():
+    # Update CSS for new card design
+    st.markdown(
+        """
+        <style>
+        .eval-container {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            padding: 10px;
+        }
+        .status-bubble {
+            flex: 1;
+            border: 1px solid #4CAF50;
+            border-radius: 8px;
+            padding: 8px 8px;
+            background: transparent;
+            min-width: 200px;
+        }
+        .status-text {
+            color: #4CAF50;
+            font-size: 1.1em;
+            margin: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .metrics-grid {
+            display: flex;
+            gap: 15px;
+            margin: 0;
+        }
+        .metric-card {
+            background: transparent;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 10px 10px;
+            width: 120px;
+            text-align: center;
+        }
+        .metric-title {
+            font-size: 0.9em;
+            color: #888;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+        .metric-value {
+            font-size: 1.4em;
+            font-weight: bold;
+        }
+        .metric-correct {
+            color: #4CAF50;
+        }
+        .metric-incorrect {
+            color: #f44336;
+        }
+        .metric-percent {
+            color: #4CAF50;
+        }
+        </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
     st.header("FEVER Evaluation")
 
-    # Input section for configuration
-    st.subheader("Configuration")
+    # Create a compact configuration section
+    with st.expander("Configuration", expanded=True):
+        # Create three columns for inputs
+        col1, col2, col3 = st.columns([3, 1, 1])
 
-    # Create three columns for inputs
-    col1, col2, col3 = st.columns([3, 1, 1])
+        with col1:
+            # Input section for dataset path
+            dataset_path = st.text_input(
+                "Dataset Path",
+                value="datasets\\fever_train.jsonl",
+                help="Path to the FEVER dataset JSONL file",
+                key="fever_dataset_path",
+            )
 
-    with col1:
-        # Input section for dataset path
-        dataset_path = st.text_input(
-            "Dataset Path",
-            value="datasets\\fever_train.jsonl",
-            help="Path to the FEVER dataset JSONL file",
-            key="fever_dataset_path",
-        )
+        with col2:
+            # Input for number of questions/claims
+            num_claims = st.number_input(
+                "Number of Claims",
+                min_value=0,
+                value=1,
+                help="Choose how many claims to sample from the dataset (0 for all)",
+                key="fever_num_claims",
+            )
 
-    with col2:
-        # Input for number of questions/claims
-        num_claims = st.number_input(
-            "Number of Claims",
-            min_value=0,
-            value=1,
-            help="Choose how many claims to sample from the dataset (0 for all)",
-            key="fever_num_claims",
-        )
+        with col3:
+            # Run evaluation button
+            st.write("")  # Add some space
+            run_button = st.button(
+                "Run Evaluation", use_container_width=True, key="run_fever"
+            )
 
-    with col3:
-        # Run evaluation button
-        st.write("")  # Add some space
-        run_button = st.button(
-            "Run Evaluation", use_container_width=True, key="run_fever"
-        )
+    # Create a compact evaluation status bubble
+    evaluation_expander = st.expander("Evaluation Status", expanded=True)
+    with evaluation_expander:
+        # Container for status and metrics
+        status_container = st.empty()
 
-    # Horizontal line to separate inputs from results
+    # Horizontal line to separate status from results
     st.markdown("---")
-
-    # Create a status area for showing progress
-    progress_container = st.container()
-    with progress_container:
-        progress_col1, progress_col2 = st.columns(2)
-        with progress_col1:
-            progress_status = st.empty()
-        with progress_col2:
-            progress_metrics = st.empty()
 
     # Results section - we'll put results above logs now
     results_container = st.container()
@@ -248,8 +395,6 @@ def run_fever_evaluation():
         # Results column (left side)
         with result_col1:
             st.subheader("Evaluation Results")
-            # Container for metrics
-            results_metrics = st.container()
             # Container for claim-evidence pairs with scrollable area
             qa_container = st.container()
             with qa_container:
@@ -270,10 +415,6 @@ def run_fever_evaluation():
             log_capture = StreamlitPrintCapture(logs_area)
             sys.stdout = log_capture
 
-            # Create progress tracker
-            progress_placeholder = progress_status.empty()
-            progress_metrics_placeholder = progress_metrics.empty()
-
             # Run the evaluation
             with st.spinner("Evaluation in progress..."):
                 fever_eval = FeverEval(dataset_path)
@@ -281,54 +422,85 @@ def run_fever_evaluation():
                 claims_to_evaluate = fever_eval.get_claims(num_claims)
 
                 # Display initial progress
-                progress_placeholder.info(
-                    f"Starting evaluation of {len(claims_to_evaluate)} claims..."
+                status_template = """
+                    <div class="eval-container">
+                        <div class="status-bubble">
+                            <p class="status-text">{status_text}</p>
+                        </div>
+                        <div class="metrics-grid">
+                            <div class="metric-card">
+                                <div class="metric-title">CORRECT</div>
+                                <div class="metric-value metric-correct">{correct}</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-title">INCORRECT</div>
+                                <div class="metric-value metric-incorrect">{incorrect}</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-title">ACCURACY</div>
+                                <div class="metric-value metric-percent">{accuracy}%</div>
+                            </div>
+                        </div>
+                    </div>
+                """
+
+                status_container.markdown(
+                    status_template.format(
+                        status_text="Initializing evaluation...",
+                        correct=0,
+                        incorrect=0,
+                        accuracy=0,
+                    ),
+                    unsafe_allow_html=True,
                 )
-
-                # Create a placeholder for the current claim and thinking round
-                evaluation_status = st.empty()
-
-                # Keep track of current claim and thinking round
-                current_claim = {"index": 0, "text": "", "thinking_round": 0}
 
                 # Capture the original method to monkey patch it
                 original_eval_claims = fever_eval.eval_claims
 
                 def eval_claims_with_progress(claim_label_pairs):
+                    correct_count = 0
+
+                    for i, (claim, _) in enumerate(claim_label_pairs):
+                        # Update status and metrics with new design
+                        status_container.markdown(
+                            status_template.format(
+                                status_text="Evaluating claim {i} "
+                                + claim[:100]
+                                + "...",
+                                correct=correct_count,
+                                incorrect=i + 1 - correct_count,
+                                accuracy=(
+                                    int(correct_count / (i + 1) * 100) if i > 0 else 0
+                                ),
+                            ),
+                            unsafe_allow_html=True,
+                        )
+
                     result = original_eval_claims(claim_label_pairs)
 
-                    # Update the progress display based on the evaluation_progress in the result
-                    for i, (claim, _) in enumerate(claim_label_pairs):
-                        # Update progress metrics
-                        progress_placeholder.info(
-                            f"Evaluating claim {i+1}/{len(claim_label_pairs)}"
-                        )
-                        progress_metrics_placeholder.metric(
-                            "Progress",
-                            f"{i+1}/{len(claim_label_pairs)}",
-                            f"{int((i+1)/len(claim_label_pairs)*100)}%",
-                        )
+                    # Update final accuracy
+                    correct_verifications = result.get("correct_verifications", 0)
+                    incorrect_verifications = (
+                        len(claim_label_pairs) - correct_verifications
+                    )
+                    accuracy_percentage = (
+                        int((correct_verifications / len(claim_label_pairs)) * 100)
+                        if claim_label_pairs
+                        else 0
+                    )
 
-                        # Update current claim tracking
-                        current_claim["index"] = i + 1
-                        current_claim["text"] = claim
-
-                        # Update the evaluation status with current claim info
-                        evaluation_status.info(
-                            f"Claim {i+1}/{len(claim_label_pairs)}: {claim[:100]}..."
-                        )
-
-                    # Final progress update
-                    progress_placeholder.success(f"Evaluation completed successfully!")
-                    progress_metrics_placeholder.metric(
-                        "Progress / Evaluation Results",
-                        f"{len(claim_label_pairs)}/{len(claim_label_pairs)}",
-                        "100%",
+                    status_container.markdown(
+                        status_template.format(
+                            status_text="Evaluation completed!",
+                            correct=correct_verifications,
+                            incorrect=incorrect_verifications,
+                            accuracy=accuracy_percentage,
+                        ),
+                        unsafe_allow_html=True,
                     )
 
                     return result
 
-                # Replace the method with our progress-tracking version
                 fever_eval.eval_claims = eval_claims_with_progress
 
                 # Run the evaluation
@@ -336,14 +508,6 @@ def run_fever_evaluation():
 
             # Restore stdout
             sys.stdout = orig_stdout
-
-            # Display results
-            with results_metrics:
-                st.metric(
-                    "Correct Verifications",
-                    result["correct_verifications"],
-                    f"{result['correct_verifications']}/{len(claims_to_evaluate)} claims",
-                )
 
             # Add CSS to create a scrollable container with fixed height (reusing the same style)
             st.markdown(
@@ -379,8 +543,6 @@ def run_fever_evaluation():
                     f'<div class="scrollable-container">{qa_text}</div>',
                     unsafe_allow_html=True,
                 )
-
-            # st.success("Evaluation completed!")
 
         except Exception as e:
             sys.stdout = orig_stdout

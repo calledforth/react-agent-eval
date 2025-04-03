@@ -63,6 +63,8 @@ Once final answer is reached reply with the below format only
     "answer": "your final answer here"
 }
 
+Make sure your final answer is complete and well-drafted response to the question, with proper context and information.
+
 Remember you are only allowed a maximum of 7 rounds of thinking and action.
 So don't waste your turns on unnecessary actions and thinking, use your turns wisely.
 
@@ -91,7 +93,11 @@ So don't waste your turns on unnecessary actions and thinking, use your turns wi
         chat_prompt = """
 You are an intelligent agent capable of evaluating answers to questions. Your task is to determine if the provided answer is valid or invalid based on the question.
 
-If the answer accurately answers the question, return 1. If the answer is incorrect or does not answer the question, return 0.
+If the answer answers the question, return 1. If the answer is incorrect or does not answer the question, return 0.
+
+You can take a lenient approach to the evaluation, such that answers which are not 100% correct but are close enough can be considered valid. For example, if the answer is a paraphrase of the solution or a close approximation, you can return 1. If the answer is completely off-topic or irrelevant, you can return 0.
+
+You can return 0 in cases when the answer is not relevant to the question or does not provide any useful information or returns factually incorrect information. For example, if the answer is a random fact that does not relate to the question, you can return 0.
 
 you can return only 1 or 0."""
 
@@ -161,8 +167,9 @@ You will work in a loop of:
 ---
 
 Available Actions:
-- retrieve: Request information about a specific topic, entity, or fact from Wikipedia. Use this for direct lookups about entities, events, or topics that have Wikipedia articles.
-- search: Request information about a query that may not be directly available on Wikipedia or requires general knowledge. Use this for complex questions or when you need information beyond Wikipedia.
+- retrieve: Request information about a specific topic, entity, or fact from Wikipedia. Use this for direct lookups about entities, events, or topics that have Wikipedia articles, one important condition for this action is that the entity for this action must be a single entity or topic and no combination of entities or topics.
+Eg : "retrieve: Elon Musk" or "retrieve: Paris" or "retrieve: World War II" or "retrieve: Dan Brown".
+- search: Request information about a query that may not be directly available on Wikipedia or requires general knowledge. Use this for complex questions or when you need information beyond Wikipedia. Use this action for relationships between entities or topics, or when the entity for this action is a combination of entities or topics.
 
 ### Output Format:
 
@@ -205,7 +212,7 @@ Once final verification is reached reply with the below format only:
 Important: When providing your final verification, please use one of these three labels exactly:
 - SUPPORTS (if the claim is supported by the evidence)
 - REFUTES (if the evidence contradicts the claim)
-- NOT ENOUGH INFO (if there's insufficient evidence to determine)
+- NOT ENOUGH INFO (if there's insufficient evidence to determine
 
 Remember you are only allowed a maximum of 7 rounds of thinking and action.
 So don't waste your turns on unnecessary actions and thinking, use your turns wisely.

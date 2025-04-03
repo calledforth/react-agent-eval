@@ -53,7 +53,7 @@ def get_wikipedia_content(query):
     soup = BeautifulSoup(response.text, "html.parser")
 
     # Get the page title
-    page_title = soup.find("h1", {"id": "firstHeading"}).text
+    # page_title = soup.find("h1", {"id": "firstHeading"}).text
 
     # Find the main content div
     content = soup.find("div", {"id": "mw-content-text"})
@@ -64,7 +64,7 @@ def get_wikipedia_content(query):
     paragraphs = content.find_all("p")
 
     # Clean and combine text
-    clean_text = f"Wikipedia article: {page_title}\n\n"
+    # clean_text = f"Wikipedia article: {page_title}\n\n"
 
     for para in paragraphs:
         # Convert to text
@@ -76,12 +76,6 @@ def get_wikipedia_content(query):
         # Remove extra whitespace
         text = " ".join(text.split())
 
-        if text:  # Only add non-empty paragraphs
-            clean_text += text + "\n\n"
-        print(clean_text[:2000])
+        # print(text[:2000])
 
-    # Limit the content to avoid very large responses
-    # if len(clean_text) > 3000:
-    #     clean_text = clean_text[:3000] + "...\n\n(Content truncated for brevity)"
-
-    return clean_text.strip()
+    return text.strip()
