@@ -76,6 +76,12 @@ class HotpotQAEval:
         self.extracted_questions = []
         self.correct_answers = 0
         self.question_answer_pairs = []  # Store question-answer pairs for display
+        self.react_question_answer_pairs = []
+        self.direct_question_answer_pairs = []
+        self.o3mini_question_answer_pairs = []
+        self.react_correct_answers = 0
+        self.direct_correct_answers = 0
+        self.o3mini_correct_answers = 0
 
     def load_hotpotqa_dataset(self) -> List[Dict[str, Any]]:
         """
@@ -126,63 +132,250 @@ class HotpotQAEval:
 
         return random.sample(self.extracted_questions, num_questions)
 
-    def eval_questions(self, questions: List[str]) -> Dict[str, Any]:
+    def eval_questions(
+        self, questions: List[str], use_react=True, use_gpt4o=True, use_o3mini=True
+    ) -> Dict[str, Any]:
         """
         Evaluate the questions by printing them out.
         Modified to also store results for Streamlit display.
+
+        Args:
+            questions: List of questions to evaluate
+            use_react: Whether to evaluate using the React agent
+            use_gpt4o: Whether to evaluate using the GPT-4o direct agent
+            use_o3mini: Whether to evaluate using the o3-mini direct agent
+
+        Returns:
+            Dictionary with evaluation results
         """
-        agent = Agent()
-        for index, question in enumerate(questions):
-            print(f"EVALUATING QUESTION : {index + 1}")
-            print(f"QUESTION: {question}\n")
-            message = question
-            for num in range(1, 8):
-                # print(f"Message {num}: {message}")
-                raw_response = agent.hotpotqa_chat(message)
-
-                try:
-                    raw_response = raw_response["choices"][0]["message"]["content"]
-                    print("PARSING RESPONSE")
-                    response = parse_json_from_response(raw_response)
-
-                    if "thinking" in response.keys():
-                        print(f"THINKING ROUND {num}: {response['thinking']}")
-
-                        action = response["action"]
-                        print(f"ACTION ROUND {num} : {action}\n")
-                        context = agent.answering_agent(action)
-                        message = f"{message}\n{response}\n{context}"
-
-                        continue
-
-                    elif "answer" in response.keys():
-                        answer = response["answer"]
-                        print(f"\nANSWER: {answer}\n")
-
-                        # Evaluate the answer
-                        evaluation_result = agent.evaluation_agent(question, answer)
-                        if evaluation_result == 1:
-                            print("✅ ANSWER EVALUATION : VALID")
-                            self.correct_answers += 1
-                            # Store the successful question-answer pair
-                            self.question_answer_pairs.append(
-                                {"question": question, "answer": answer, "valid": True}
-                            )
-                            break
-                        elif evaluation_result == 0:
-                            print("❌ ANSWER EVALUATION: INVALID")
-                            self.question_answer_pairs.append(
-                                {"question": question, "answer": answer, "valid": False}
-                            )
-                            break
-
-                except Exception as e:
-                    print(f"Error processing question {index + 1}: {e}")
-
-        return {
-            "correct_answers": self.correct_answers,
-            "question_answer_pairs": self.question_answer_pairs,
+        agent_gpt4o = Agent("gpt-4o")
+        agent_o3mini = Agent("o3-mini")
+        evaluation_results = {
+            "react_results": {"correct_answers": 0, "question_answer_pairs": []},
+            "direct_results": {"correct_answers": 0, "question_answer_pairs": []},
+            "o3mini_results": {"correct_answers": 0, "question_answer_pairs": []},
+            "evaluation_progress": {
+                "current_question": 0,
+                "total_questions": len(questions),
+                "current_agent": "",
+                "thinking_round": 0,
+                "status": "",
+            },
         }
+
+        for index, question in enumerate(questions):
+            print(f"\nEVALUATING QUESTION {index + 1}")
+            print(f"QUESTION: {question}\n")
+
+            # Update progress information
+            evaluation_results["evaluation_progress"]["current_question"] = index + 1
+            evaluation_results["evaluation_progress"]["status"] = "evaluating"
+
+            # Direct GPT-4o agent evaluation if selected
+            if use_gpt4o:
+                evaluation_results["evaluation_progress"][
+                    "current_agent"
+                ] = "Direct Agent (GPT-4o)"
+                try:
+                    print("DIRECT GPT-4O AGENT EVALUATION:")
+                    raw_response = agent_gpt4o.hotpotqa_chat_direct(question)
+                    direct_response = parse_json_from_response(
+                        raw_response["choices"][0]["message"]["content"]
+                    )
+
+                    direct_answer = direct_response["answer"]
+                    print(f"DIRECT GPT-4O ANSWER: {direct_answer}\n")
+
+                    direct_evaluation = agent_gpt4o.evaluation_agent(
+                        question, direct_answer
+                    )
+                    if direct_evaluation == 1:
+                        print("✅ DIRECT GPT-4O ANSWER EVALUATION: VALID")
+                        evaluation_results["direct_results"]["correct_answers"] += 1
+                        evaluation_results["direct_results"][
+                            "question_answer_pairs"
+                        ].append(
+                            {
+                                "question": question,
+                                "answer": direct_answer,
+                                "valid": True,
+                            }
+                        )
+                    else:
+                        print("❌ DIRECT GPT-4O ANSWER EVALUATION: INVALID")
+                        evaluation_results["direct_results"][
+                            "question_answer_pairs"
+                        ].append(
+                            {
+                                "question": question,
+                                "answer": direct_answer,
+                                "valid": False,
+                            }
+                        )
+                except Exception as e:
+                    print(f"Error in direct GPT-4o agent: {e}")
+                    evaluation_results["direct_results"][
+                        "question_answer_pairs"
+                    ].append(
+                        {
+                            "question": question,
+                            "answer": f"Error: {str(e)}",
+                            "valid": False,
+                        }
+                    )
+
+            # Direct o3-mini agent evaluation if selected
+            if use_o3mini:
+                evaluation_results["evaluation_progress"][
+                    "current_agent"
+                ] = "Direct Agent (o3-mini)"
+                try:
+                    print("DIRECT O3-MINI AGENT EVALUATION:")
+                    raw_response = agent_o3mini.hotpotqa_chat_direct(question)
+                    o3mini_response = parse_json_from_response(
+                        raw_response["choices"][0]["message"]["content"]
+                    )
+
+                    o3mini_answer = o3mini_response["answer"]
+                    print(f"DIRECT O3-MINI ANSWER: {o3mini_answer}\n")
+
+                    # Use the GPT-4o agent for evaluation to ensure fair comparison
+                    o3mini_evaluation = agent_gpt4o.evaluation_agent(
+                        question, o3mini_answer
+                    )
+                    if o3mini_evaluation == 1:
+                        print("✅ DIRECT O3-MINI ANSWER EVALUATION: VALID")
+                        evaluation_results["o3mini_results"]["correct_answers"] += 1
+                        evaluation_results["o3mini_results"][
+                            "question_answer_pairs"
+                        ].append(
+                            {
+                                "question": question,
+                                "answer": o3mini_answer,
+                                "valid": True,
+                            }
+                        )
+                    else:
+                        print("❌ DIRECT O3-MINI ANSWER EVALUATION: INVALID")
+                        evaluation_results["o3mini_results"][
+                            "question_answer_pairs"
+                        ].append(
+                            {
+                                "question": question,
+                                "answer": o3mini_answer,
+                                "valid": False,
+                            }
+                        )
+                except Exception as e:
+                    print(f"Error in direct o3-mini agent: {e}")
+                    evaluation_results["o3mini_results"][
+                        "question_answer_pairs"
+                    ].append(
+                        {
+                            "question": question,
+                            "answer": f"Error: {str(e)}",
+                            "valid": False,
+                        }
+                    )
+
+            # React agent evaluation (using GPT-4o) if selected
+            if use_react:
+                evaluation_results["evaluation_progress"][
+                    "current_agent"
+                ] = "React Agent"
+                print("\nREACT AGENT EVALUATION:")
+                message = question
+                react_verification_result = None
+
+                for num in range(1, 8):
+                    # Update thinking round for UI feedback
+                    evaluation_results["evaluation_progress"]["thinking_round"] = num
+
+                    try:
+                        raw_response = agent_gpt4o.hotpotqa_chat_react(message)
+                        raw_response = raw_response["choices"][0]["message"]["content"]
+                        print("PARSING RESPONSE")
+                        response = parse_json_from_response(raw_response)
+
+                        if "thinking" in response.keys():
+                            print(f"THINKING ROUND {num}: {response['thinking']}")
+                            action = response["action"]
+                            print(f"ACTION ROUND {num} : {action}\n")
+                            context = agent_gpt4o.answering_agent(action)
+                            message = f"{message}\n{response}\n{context}"
+                            continue
+
+                        elif "answer" in response.keys():
+                            answer = response["answer"]
+                            print(f"\nANSWER: {answer}\n")
+
+                            # Evaluate the answer
+                            evaluation_result = agent_gpt4o.evaluation_agent(
+                                question, answer
+                            )
+                            if evaluation_result == 1:
+                                print("✅ ANSWER EVALUATION : VALID")
+                                evaluation_results["react_results"][
+                                    "correct_answers"
+                                ] += 1
+                                evaluation_results["react_results"][
+                                    "question_answer_pairs"
+                                ].append(
+                                    {
+                                        "question": question,
+                                        "answer": answer,
+                                        "valid": True,
+                                    }
+                                )
+                            else:
+                                print("❌ ANSWER EVALUATION: INVALID")
+                                evaluation_results["react_results"][
+                                    "question_answer_pairs"
+                                ].append(
+                                    {
+                                        "question": question,
+                                        "answer": answer,
+                                        "valid": False,
+                                    }
+                                )
+
+                            # Update progress information - completed
+                            evaluation_results["evaluation_progress"][
+                                "status"
+                            ] = "completed"
+                            react_verification_result = True
+                            break
+
+                    except Exception as e:
+                        print(
+                            f"Error processing question with React agent {index + 1}: {e}"
+                        )
+                        evaluation_results["react_results"][
+                            "question_answer_pairs"
+                        ].append(
+                            {
+                                "question": question,
+                                "answer": f"Error: {str(e)}",
+                                "valid": False,
+                            }
+                        )
+                        evaluation_results["evaluation_progress"]["status"] = "error"
+                        react_verification_result = False
+                        break
+
+                # If we went through all rounds without getting an answer
+                if react_verification_result is None:
+                    print("❌ No answer produced after maximum rounds with React agent")
+                    evaluation_results["evaluation_progress"]["status"] = "failed"
+                    evaluation_results["react_results"]["question_answer_pairs"].append(
+                        {
+                            "question": question,
+                            "answer": "No answer produced after maximum rounds",
+                            "valid": False,
+                        }
+                    )
+
+        return evaluation_results
 
 
 if __name__ == "__main__":
