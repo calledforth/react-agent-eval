@@ -380,7 +380,7 @@ So don't waste your turns on unnecessary actions and thinking, use your turns wi
         - place: Place an object somewhere (e.g., "place apple in fridge")
         - open: Open a container (e.g., "open fridge")
         - close: Close a container (e.g., "close fridge")
-        - use: Use an appliance (e.g., "use microwave")
+        - use: Use an appliance or cookware such as pans (e.g., "use microwave")
         - clean: Clean an object (e.g., "clean apple")
         - heat: Heat an object (e.g., "heat apple")
         - cool: Cool an object (e.g., "cool apple")
@@ -415,7 +415,7 @@ So don't waste your turns on unnecessary actions and thinking, use your turns wi
         Remember you are only allowed a maximum of 7 rounds of thinking and action.
         """
 
-        messages = chat_prompt + "\nTask: " + task
+        messages = chat_prompt + "\n" + task
 
         completion_params = {
             "model": self.deployment,
@@ -444,16 +444,14 @@ So don't waste your turns on unnecessary actions and thinking, use your turns wi
         chat_prompt = """
         You are an intelligent agent tasked with solving household tasks in a simulated environment.
         
-        Given a task description, I need you to:
+        Given a task description and environment description, I need you to:
         1. Provide a sequence of actions that would successfully complete the task
-        2. Determine if the task can be successfully completed with these actions
-        3. Explain your reasoning
+        2. Explain your reasoning for these actions
         
         Provide your response in this JSON format:
         {
             "actions": ["list", "of", "actions", "to", "take"],
-            "success": true/false,
-            "reasoning": "your explanation of why these actions would work"
+            "reasoning": "your explanation of why these actions would work with respect to the current environment. Focus on explaining how each action contributes to solving the task based on the environment description"
         }
         
         Available actions include:
@@ -463,13 +461,15 @@ So don't waste your turns on unnecessary actions and thinking, use your turns wi
         - place: Place an object somewhere (e.g., "place apple in fridge")
         - open: Open a container (e.g., "open fridge")
         - close: Close a container (e.g., "close fridge")
-        - use: Use an appliance (e.g., "use microwave")
+        - use: Use an appliance or cookware such as pans (e.g., "use microwave")
         - clean: Clean an object (e.g., "clean apple")
         - heat: Heat an object (e.g., "heat apple")
         - cool: Cool an object (e.g., "cool apple")
+        
+        Make sure your actions are in the correct sequence, consider all details from the environment description, and be specific about the objects you interact with.
         """
 
-        messages = chat_prompt + "\nTask: " + task
+        messages = chat_prompt + "\n" + task
 
         # Use the appropriate parameter based on model
         if self.deployment == "o3-mini":

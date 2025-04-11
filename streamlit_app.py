@@ -1,8 +1,13 @@
 import streamlit as st
 import sys
+import datetime
 from hotpotqa_eval import HotpotQAEval, StreamlitPrintCapture
 from fever_eval import FeverEval
 from alfworld_eval import ALFWorldEval
+from history_manager import HistoryManager
+
+# Initialize the history manager
+history_manager = HistoryManager()
 
 
 def run_streamlit_app():
@@ -11,19 +16,633 @@ def run_streamlit_app():
 
     st.title("Evaluation Dashboard")
 
-    # Create tabs for HotpotQA, FEVER, and ALFWorld
-    tab1, tab2, tab3 = st.tabs(
-        ["HotpotQA Evaluation", "FEVER Evaluation", "ALFWorld Evaluation"]
+    # Add history button at the top
+    show_history = st.sidebar.checkbox("Show Evaluation History", value=False)
+
+    if show_history:
+        show_history_page()
+    else:
+        # Create tabs for HotpotQA, FEVER, and ALFWorld
+        tab1, tab2, tab3 = st.tabs(
+            ["HotpotQA Evaluation", "FEVER Evaluation", "ALFWorld Evaluation"]
+        )
+
+        with tab1:
+            run_hotpotqa_evaluation()
+
+        with tab2:
+            run_fever_evaluation()
+
+        with tab3:
+            run_alfworld_evaluation()
+
+
+def show_history_page():
+    """Show the evaluation history page."""
+    st.header("Evaluation History")
+
+    # Filter options
+    col1, col2 = st.columns([1, 3])
+
+    with col1:
+        eval_type_filter = st.selectbox(
+            "Filter by evaluation type",
+            options=["All", "HotpotQA", "FEVER", "ALFWorld"],
+            key="history_type_filter",
+        )
+
+    # Convert filter options to internal names
+    if eval_type_filter == "All":
+        eval_type = None
+    else:
+        eval_type = eval_type_filter.lower()
+
+    # Get history records
+    history = history_manager.get_evaluation_history(eval_type)
+
+    if not history:
+        st.info("No evaluation history found. Run some evaluations first.")
+        return
+
+    # CSS for history cards
+    st.markdown(
+        """
+        <style>
+        .history-card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 12px;
+            margin: 8px 0;
+            background-color: white;
+        }
+        .history-card:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .history-header {
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 8px;
+            margin-bottom: 8px;
+        }
+        .history-type {
+            font-weight: bold;
+            text-transform: uppercase;
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+        .hotpotqa-type {
+            background-color: rgba(33, 150, 243, 0.1);
+            color: #2196F3;
+        }
+        .fever-type {
+            background-color: rgba(76, 175, 80, 0.1);
+            color: #4CAF50;
+        }
+        .alfworld-type {
+            background-color: rgba(156, 39, 176, 0.1);
+            color: #9C27B0;
+        }
+        .history-metrics {
+            display: flex;
+            gap: 8px;
+        }
+        .history-metric {
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: #f5f5f5;
+            font-size: 0.9em;
+        }
+        </style>
+    """,
+        unsafe_allow_html=True,
     )
 
-    with tab1:
-        run_hotpotqa_evaluation()
+    # Show each history item
+    for record in history:
+        # Format timestamp
+        try:
+            timestamp = datetime.datetime.fromisoformat(record["metadata"]["timestamp"])
+            formatted_time = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        except:
+            formatted_time = record["metadata"]["timestamp"]
 
-    with tab2:
-        run_fever_evaluation()
+        # Get details about the evaluation
+        eval_type = record["metadata"]["eval_type"]
 
-    with tab3:
-        run_alfworld_evaluation()
+        # Capitalize the evaluation type for display
+        display_type = {
+            "hotpotqa": "HotpotQA",
+            "fever": "FEVER",
+            "alfworld": "ALFWorld",
+        }.get(eval_type, eval_type.upper())
+
+        # Create a container for this history item
+        col1, col2 = st.columns([5, 1])
+
+        with col1:
+            expander_title = f"{display_type} evaluation from {formatted_time}"
+
+            # Add some details about the dataset/number of items evaluated
+            if "num_items" in record["metadata"]:
+                expander_title += f" ({record['metadata']['num_items']} items)"
+
+            with st.expander(expander_title):
+                # Load the full results when the expander is clicked
+                full_record = history_manager.get_evaluation_by_id(record["id"])
+                if not full_record:
+                    st.error("Could not load the complete evaluation results.")
+                    continue
+
+                # Show summary metrics based on evaluation type
+                if eval_type == "hotpotqa":
+                    display_hotpotqa_history(full_record)
+                elif eval_type == "fever":
+                    display_fever_history(full_record)
+                elif eval_type == "alfworld":
+                    display_alfworld_history(full_record)
+                else:
+                    st.json(full_record["results"])
+
+        with col2:
+            # Show a button to delete this history item
+            if st.button("Delete", key=f"delete_{record['id']}"):
+                # TODO: Implement delete functionality
+                st.warning("Delete functionality not implemented yet.")
+
+
+def display_hotpotqa_history(record):
+    """Display HotpotQA history details."""
+    results = record["results"]
+
+    # Display metrics
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        if "react_results" in results:
+            react_correct = results["react_results"].get("correct_answers", 0)
+            react_total = len(results["react_results"].get("question_answer_pairs", []))
+            react_accuracy = (
+                (react_correct / react_total * 100) if react_total > 0 else 0
+            )
+
+            st.metric(
+                "React Agent",
+                f"{react_correct}/{react_total}",
+                f"{react_accuracy:.1f}%",
+            )
+
+    with col2:
+        if "direct_results" in results:
+            direct_correct = results["direct_results"].get("correct_answers", 0)
+            direct_total = len(
+                results["direct_results"].get("question_answer_pairs", [])
+            )
+            direct_accuracy = (
+                (direct_correct / direct_total * 100) if direct_total > 0 else 0
+            )
+
+            st.metric(
+                "GPT-4o Agent",
+                f"{direct_correct}/{direct_total}",
+                f"{direct_accuracy:.1f}%",
+            )
+
+    with col3:
+        if "o3mini_results" in results:
+            o3mini_correct = results["o3mini_results"].get("correct_answers", 0)
+            o3mini_total = len(
+                results["o3mini_results"].get("question_answer_pairs", [])
+            )
+            o3mini_accuracy = (
+                (o3mini_correct / o3mini_total * 100) if o3mini_total > 0 else 0
+            )
+
+            st.metric(
+                "o3-mini Agent",
+                f"{o3mini_correct}/{o3mini_total}",
+                f"{o3mini_accuracy:.1f}%",
+            )
+
+    # Create tabs for each agent's results
+    tabs = []
+    tab_titles = []
+
+    if "react_results" in results:
+        tab_titles.append("React Agent Results")
+    if "direct_results" in results:
+        tab_titles.append("GPT-4o Results")
+    if "o3mini_results" in results:
+        tab_titles.append("o3-mini Results")
+
+    tabs = st.tabs(tab_titles)
+
+    # Add CSS for the scrollable container
+    st.markdown(
+        """
+        <style>
+        .scrollable-container {
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #e6e6e6;
+            border-radius: 5px;
+            padding: 10px;
+            background-color: rgba(0,0,0,0.02);
+        }
+        </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    # Display results for each agent
+    tab_index = 0
+
+    if "react_results" in results:
+        with tabs[tab_index]:
+            qa_text = ""
+            for idx, qa_pair in enumerate(
+                results["react_results"]["question_answer_pairs"]
+            ):
+                status = "✅ VALID" if qa_pair["valid"] else "❌ INVALID"
+                qa_text += f"Question {idx+1}: {qa_pair['question']}\n\n"
+                qa_text += f"Answer: {qa_pair['answer']}\n\n"
+                qa_text += f"Status: {status}\n\n"
+                qa_text += "---\n\n"
+
+            st.markdown(
+                f'<div class="scrollable-container">{qa_text}</div>',
+                unsafe_allow_html=True,
+            )
+        tab_index += 1
+
+    if "direct_results" in results:
+        with tabs[tab_index]:
+            qa_text = ""
+            for idx, qa_pair in enumerate(
+                results["direct_results"]["question_answer_pairs"]
+            ):
+                status = "✅ VALID" if qa_pair["valid"] else "❌ INVALID"
+                qa_text += f"Question {idx+1}: {qa_pair['question']}\n\n"
+                qa_text += f"Answer: {qa_pair['answer']}\n\n"
+                qa_text += f"Status: {status}\n\n"
+                qa_text += "---\n\n"
+
+            st.markdown(
+                f'<div class="scrollable-container">{qa_text}</div>',
+                unsafe_allow_html=True,
+            )
+        tab_index += 1
+
+    if "o3mini_results" in results:
+        with tabs[tab_index]:
+            qa_text = ""
+            for idx, qa_pair in enumerate(
+                results["o3mini_results"]["question_answer_pairs"]
+            ):
+                status = "✅ VALID" if qa_pair["valid"] else "❌ INVALID"
+                qa_text += f"Question {idx+1}: {qa_pair['question']}\n\n"
+                qa_text += f"Answer: {qa_pair['answer']}\n\n"
+                qa_text += f"Status: {status}\n\n"
+                qa_text += "---\n\n"
+
+            st.markdown(
+                f'<div class="scrollable-container">{qa_text}</div>',
+                unsafe_allow_html=True,
+            )
+
+
+def display_fever_history(record):
+    """Display FEVER history details."""
+    results = record["results"]
+
+    # Display metrics
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        if "react_results" in results:
+            react_correct = results["react_results"].get("correct_verifications", 0)
+            react_total = len(
+                results["react_results"].get("claim_verification_pairs", [])
+            )
+            react_accuracy = (
+                (react_correct / react_total * 100) if react_total > 0 else 0
+            )
+
+            st.metric(
+                "React Agent",
+                f"{react_correct}/{react_total}",
+                f"{react_accuracy:.1f}%",
+            )
+
+    with col2:
+        if "direct_results" in results:
+            direct_correct = results["direct_results"].get("correct_verifications", 0)
+            direct_total = len(
+                results["direct_results"].get("claim_verification_pairs", [])
+            )
+            direct_accuracy = (
+                (direct_correct / direct_total * 100) if direct_total > 0 else 0
+            )
+
+            st.metric(
+                "GPT-4o Agent",
+                f"{direct_correct}/{direct_total}",
+                f"{direct_accuracy:.1f}%",
+            )
+
+    with col3:
+        if "o3mini_results" in results:
+            o3mini_correct = results["o3mini_results"].get("correct_verifications", 0)
+            o3mini_total = len(
+                results["o3mini_results"].get("claim_verification_pairs", [])
+            )
+            o3mini_accuracy = (
+                (o3mini_correct / o3mini_total * 100) if o3mini_total > 0 else 0
+            )
+
+            st.metric(
+                "o3-mini Agent",
+                f"{o3mini_correct}/{o3mini_total}",
+                f"{o3mini_accuracy:.1f}%",
+            )
+
+    # Create tabs for each agent's results
+    tabs = []
+    tab_titles = []
+
+    if "react_results" in results:
+        tab_titles.append("React Agent Results")
+    if "direct_results" in results:
+        tab_titles.append("GPT-4o Results")
+    if "o3mini_results" in results:
+        tab_titles.append("o3-mini Results")
+
+    tabs = st.tabs(tab_titles)
+
+    # Display results for each agent
+    tab_index = 0
+
+    if "react_results" in results:
+        with tabs[tab_index]:
+            claim_text = ""
+            for idx, claim_pair in enumerate(
+                results["react_results"]["claim_verification_pairs"]
+            ):
+                status = "✅ CORRECT" if claim_pair["correct"] else "❌ INCORRECT"
+                claim_text += f"Claim {idx+1}: {claim_pair['claim']}\n\n"
+                claim_text += f"Ground Truth: {claim_pair['ground_truth']}\n\n"
+                claim_text += f"Verification: {claim_pair['verification']}\n\n"
+                claim_text += f"Evidence: {claim_pair.get('evidence', '')}\n\n"
+                claim_text += f"Status: {status}\n\n"
+                claim_text += "---\n\n"
+
+            st.markdown(
+                f'<div class="scrollable-container">{claim_text}</div>',
+                unsafe_allow_html=True,
+            )
+        tab_index += 1
+
+    if "direct_results" in results:
+        with tabs[tab_index]:
+            claim_text = ""
+            for idx, claim_pair in enumerate(
+                results["direct_results"]["claim_verification_pairs"]
+            ):
+                status = "✅ CORRECT" if claim_pair["correct"] else "❌ INCORRECT"
+                claim_text += f"Claim {idx+1}: {claim_pair['claim']}\n\n"
+                claim_text += f"Ground Truth: {claim_pair['ground_truth']}\n\n"
+                claim_text += f"Verification: {claim_pair['verification']}\n\n"
+                claim_text += f"Evidence: {claim_pair.get('evidence', '')}\n\n"
+                claim_text += f"Status: {status}\n\n"
+                claim_text += "---\n\n"
+
+            st.markdown(
+                f'<div class="scrollable-container">{claim_text}</div>',
+                unsafe_allow_html=True,
+            )
+        tab_index += 1
+
+    if "o3mini_results" in results:
+        with tabs[tab_index]:
+            claim_text = ""
+            for idx, claim_pair in enumerate(
+                results["o3mini_results"]["claim_verification_pairs"]
+            ):
+                status = "✅ CORRECT" if claim_pair["correct"] else "❌ INCORRECT"
+                claim_text += f"Claim {idx+1}: {claim_pair['claim']}\n\n"
+                claim_text += f"Ground Truth: {claim_pair['ground_truth']}\n\n"
+                claim_text += f"Verification: {claim_pair['verification']}\n\n"
+                claim_text += f"Evidence: {claim_pair.get('evidence', '')}\n\n"
+                claim_text += f"Status: {status}\n\n"
+                claim_text += "---\n\n"
+
+            st.markdown(
+                f'<div class="scrollable-container">{claim_text}</div>',
+                unsafe_allow_html=True,
+            )
+
+
+def display_alfworld_history(record):
+    """Display ALFWorld history details."""
+    results = record["results"]
+
+    # Display metrics
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        if "react_results" in results:
+            react_successful = results["react_results"].get("successful_tasks", 0)
+            react_total = len(results["react_results"].get("task_results", []))
+            react_success_rate = (
+                (react_successful / react_total * 100) if react_total > 0 else 0
+            )
+
+            st.metric(
+                "React Agent",
+                f"{react_successful}/{react_total}",
+                f"{react_success_rate:.1f}%",
+            )
+
+    with col2:
+        if "direct_results" in results:
+            direct_successful = results["direct_results"].get("successful_tasks", 0)
+            direct_total = len(results["direct_results"].get("task_results", []))
+            direct_success_rate = (
+                (direct_successful / direct_total * 100) if direct_total > 0 else 0
+            )
+
+            st.metric(
+                "GPT-4o Agent",
+                f"{direct_successful}/{direct_total}",
+                f"{direct_success_rate:.1f}%",
+            )
+
+    with col3:
+        if "o3mini_results" in results:
+            o3mini_successful = results["o3mini_results"].get("successful_tasks", 0)
+            o3mini_total = len(results["o3mini_results"].get("task_results", []))
+            o3mini_success_rate = (
+                (o3mini_successful / o3mini_total * 100) if o3mini_total > 0 else 0
+            )
+
+            st.metric(
+                "o3-mini Agent",
+                f"{o3mini_successful}/{o3mini_total}",
+                f"{o3mini_success_rate:.1f}%",
+            )
+
+    # Create tabs for each agent's results
+    tabs = []
+    tab_titles = []
+
+    if "react_results" in results:
+        tab_titles.append("React Agent Results")
+    if "direct_results" in results:
+        tab_titles.append("GPT-4o Results")
+    if "o3mini_results" in results:
+        tab_titles.append("o3-mini Results")
+
+    tabs = st.tabs(tab_titles)
+
+    # Display results for each agent
+    tab_index = 0
+
+    # Add CSS for alfworld display
+    st.markdown(
+        """
+        <style>
+        .task-type-tag {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-right: 8px;
+            background-color: #2c3e50;
+            color: white;
+        }
+        .environment-box {
+            background-color: #f8f9fa;
+            border-left: 4px solid #6c757d;
+            padding: 10px;
+            margin: 10px 0;
+            font-style: italic;
+            color: #495057;
+        }
+        .evaluation-box {
+            background-color: #f1f8e9;
+            border-left: 4px solid #4caf50;
+            padding: 10px;
+            margin: 10px 0;
+            color: #2e7d32;
+        }
+        .evaluation-box-fail {
+            background-color: #ffebee;
+            border-left: 4px solid #f44336;
+            padding: 10px;
+            margin: 10px 0;
+            color: #c62828;
+        }
+        </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    if "react_results" in results:
+        with tabs[tab_index]:
+            task_text = ""
+            for idx, task_result in enumerate(results["react_results"]["task_results"]):
+                status = "✅ SUCCESSFUL" if task_result["success"] else "❌ FAILED"
+                task_type = task_result["task_type"]
+                environment = task_result.get(
+                    "environment", "No environment description"
+                )
+                evaluation_explanation = task_result.get(
+                    "evaluation_explanation", "No evaluation provided"
+                )
+
+                task_text += f"<div class='task-type-tag'>{task_type}</div> <b>Task {idx+1}</b>: {task_result['task_description']}\n\n"
+                task_text += f"<div class='environment-box'><b>Environment:</b><br>{environment}</div>\n\n"
+                task_text += f"<b>Actions:</b> {', '.join(task_result.get('actions', ['No actions recorded']))}\n\n"
+                task_text += f"<b>Reasoning:</b> {task_result.get('reasoning', 'No reasoning provided')}\n\n"
+
+                if task_result["success"]:
+                    task_text += f"<div class='evaluation-box'><b>Evaluation:</b> {status}<br>{evaluation_explanation}</div>\n\n"
+                else:
+                    task_text += f"<div class='evaluation-box-fail'><b>Evaluation:</b> {status}<br>{evaluation_explanation}</div>\n\n"
+
+                task_text += "---\n\n"
+
+            st.markdown(
+                f'<div class="scrollable-container">{task_text}</div>',
+                unsafe_allow_html=True,
+            )
+        tab_index += 1
+
+    if "direct_results" in results:
+        with tabs[tab_index]:
+            task_text = ""
+            for idx, task_result in enumerate(
+                results["direct_results"]["task_results"]
+            ):
+                status = "✅ SUCCESSFUL" if task_result["success"] else "❌ FAILED"
+                task_type = task_result["task_type"]
+                environment = task_result.get(
+                    "environment", "No environment description"
+                )
+                evaluation_explanation = task_result.get(
+                    "evaluation_explanation", "No evaluation provided"
+                )
+
+                task_text += f"<div class='task-type-tag'>{task_type}</div> <b>Task {idx+1}</b>: {task_result['task_description']}\n\n"
+                task_text += f"<div class='environment-box'><b>Environment:</b><br>{environment}</div>\n\n"
+                task_text += f"<b>Actions:</b> {', '.join(task_result.get('actions', ['No actions recorded']))}\n\n"
+                task_text += f"<b>Reasoning:</b> {task_result.get('reasoning', 'No reasoning provided')}\n\n"
+
+                if task_result["success"]:
+                    task_text += f"<div class='evaluation-box'><b>Evaluation:</b> {status}<br>{evaluation_explanation}</div>\n\n"
+                else:
+                    task_text += f"<div class='evaluation-box-fail'><b>Evaluation:</b> {status}<br>{evaluation_explanation}</div>\n\n"
+
+                task_text += "---\n\n"
+
+            st.markdown(
+                f'<div class="scrollable-container">{task_text}</div>',
+                unsafe_allow_html=True,
+            )
+        tab_index += 1
+
+    if "o3mini_results" in results:
+        with tabs[tab_index]:
+            task_text = ""
+            for idx, task_result in enumerate(
+                results["o3mini_results"]["task_results"]
+            ):
+                status = "✅ SUCCESSFUL" if task_result["success"] else "❌ FAILED"
+                task_type = task_result["task_type"]
+                environment = task_result.get(
+                    "environment", "No environment description"
+                )
+                evaluation_explanation = task_result.get(
+                    "evaluation_explanation", "No evaluation provided"
+                )
+
+                task_text += f"<div class='task-type-tag'>{task_type}</div> <b>Task {idx+1}</b>: {task_result['task_description']}\n\n"
+                task_text += f"<div class='environment-box'><b>Environment:</b><br>{environment}</div>\n\n"
+                task_text += f"<b>Actions:</b> {', '.join(task_result.get('actions', ['No actions recorded']))}\n\n"
+                task_text += f"<b>Reasoning:</b> {task_result.get('reasoning', 'No reasoning provided')}\n\n"
+
+                if task_result["success"]:
+                    task_text += f"<div class='evaluation-box'><b>Evaluation:</b> {status}<br>{evaluation_explanation}</div>\n\n"
+                else:
+                    task_text += f"<div class='evaluation-box-fail'><b>Evaluation:</b> {status}<br>{evaluation_explanation}</div>\n\n"
+
+                task_text += "---\n\n"
+
+            st.markdown(
+                f'<div class="scrollable-container">{task_text}</div>',
+                unsafe_allow_html=True,
+            )
 
 
 def run_hotpotqa_evaluation():
@@ -277,6 +896,18 @@ def run_hotpotqa_evaluation():
                     use_gpt4o=use_gpt4o,
                     use_o3mini=use_o3mini,
                 )
+
+                # Save the results to history
+                metadata = {
+                    "num_items": len(questions_to_evaluate),
+                    "dataset_path": dataset_path,
+                    "agents": {
+                        "react": use_react,
+                        "gpt4o": use_gpt4o,
+                        "o3mini": use_o3mini,
+                    },
+                }
+                history_manager.save_evaluation("hotpotqa", result, metadata)
 
                 # Prepare status displays for each selected agent
                 status_displays = []
@@ -615,6 +1246,18 @@ def run_fever_evaluation():
                 result = fever_eval.eval_claims(
                     claims_to_evaluate, use_react, use_gpt4o, use_o3mini
                 )
+
+                # Save the results to history
+                metadata = {
+                    "num_items": len(claims_to_evaluate),
+                    "dataset_path": dataset_path,
+                    "agents": {
+                        "react": use_react,
+                        "gpt4o": use_gpt4o,
+                        "o3mini": use_o3mini,
+                    },
+                }
+                history_manager.save_evaluation("fever", result, metadata)
 
                 # Prepare status displays for each selected agent
                 status_displays = []
@@ -995,6 +1638,18 @@ def run_alfworld_evaluation():
                     tasks_to_evaluate, use_react, use_gpt4o, use_o3mini
                 )
 
+                # Save the results to history
+                metadata = {
+                    "num_items": len(tasks_to_evaluate),
+                    "dataset_path": dataset_path,
+                    "agents": {
+                        "react": use_react,
+                        "gpt4o": use_gpt4o,
+                        "o3mini": use_o3mini,
+                    },
+                }
+                history_manager.save_evaluation("alfworld", result, metadata)
+
                 # Prepare status displays for each selected agent
                 status_displays = []
 
@@ -1104,6 +1759,28 @@ def run_alfworld_evaluation():
                     background-color: #2c3e50;
                     color: white;
                 }
+                .environment-box {
+                    background-color: #f8f9fa;
+                    border-left: 4px solid #6c757d;
+                    padding: 10px;
+                    margin: 10px 0;
+                    font-style: italic;
+                    color: #495057;
+                }
+                .evaluation-box {
+                    background-color: #f1f8e9;
+                    border-left: 4px solid #4caf50;
+                    padding: 10px;
+                    margin: 10px 0;
+                    color: #2e7d32;
+                }
+                .evaluation-box-fail {
+                    background-color: #ffebee;
+                    border-left: 4px solid #f44336;
+                    padding: 10px;
+                    margin: 10px 0;
+                    color: #c62828;
+                }
                 </style>
             """,
                 unsafe_allow_html=True,
@@ -1124,10 +1801,23 @@ def run_alfworld_evaluation():
                             "✅ SUCCESSFUL" if task_result["success"] else "❌ FAILED"
                         )
                         task_type = task_result["task_type"]
+                        environment = task_result.get(
+                            "environment", "No environment description"
+                        )
+                        evaluation_explanation = task_result.get(
+                            "evaluation_explanation", "No evaluation provided"
+                        )
+
                         react_task_text += f"<div class='task-type-tag'>{task_type}</div> <b>Task {idx+1}</b>: {task_result['task_description']}\n\n"
-                        react_task_text += f"Actions: {', '.join(task_result.get('actions', ['No actions recorded']))}\n\n"
-                        react_task_text += f"Reasoning: {task_result.get('reasoning', 'No reasoning provided')}\n\n"
-                        react_task_text += f"Status: {status}\n\n"
+                        react_task_text += f"<div class='environment-box'><b>Environment:</b><br>{environment}</div>\n\n"
+                        react_task_text += f"<b>Actions:</b> {', '.join(task_result.get('actions', ['No actions recorded']))}\n\n"
+                        react_task_text += f"<b>Reasoning:</b> {task_result.get('reasoning', 'No reasoning provided')}\n\n"
+
+                        if task_result["success"]:
+                            react_task_text += f"<div class='evaluation-box'><b>Evaluation:</b> {status}<br>{evaluation_explanation}</div>\n\n"
+                        else:
+                            react_task_text += f"<div class='evaluation-box-fail'><b>Evaluation:</b> {status}<br>{evaluation_explanation}</div>\n\n"
+
                         react_task_text += "---\n\n"
 
                     # Display the markdown in a scrollable div
@@ -1149,10 +1839,23 @@ def run_alfworld_evaluation():
                             "✅ SUCCESSFUL" if task_result["success"] else "❌ FAILED"
                         )
                         task_type = task_result["task_type"]
+                        environment = task_result.get(
+                            "environment", "No environment description"
+                        )
+                        evaluation_explanation = task_result.get(
+                            "evaluation_explanation", "No evaluation provided"
+                        )
+
                         direct_task_text += f"<div class='task-type-tag'>{task_type}</div> <b>Task {idx+1}</b>: {task_result['task_description']}\n\n"
-                        direct_task_text += f"Actions: {', '.join(task_result.get('actions', ['No actions recorded']))}\n\n"
-                        direct_task_text += f"Reasoning: {task_result.get('reasoning', 'No reasoning provided')}\n\n"
-                        direct_task_text += f"Status: {status}\n\n"
+                        direct_task_text += f"<div class='environment-box'><b>Environment:</b><br>{environment}</div>\n\n"
+                        direct_task_text += f"<b>Actions:</b> {', '.join(task_result.get('actions', ['No actions recorded']))}\n\n"
+                        direct_task_text += f"<b>Reasoning:</b> {task_result.get('reasoning', 'No reasoning provided')}\n\n"
+
+                        if task_result["success"]:
+                            direct_task_text += f"<div class='evaluation-box'><b>Evaluation:</b> {status}<br>{evaluation_explanation}</div>\n\n"
+                        else:
+                            direct_task_text += f"<div class='evaluation-box-fail'><b>Evaluation:</b> {status}<br>{evaluation_explanation}</div>\n\n"
+
                         direct_task_text += "---\n\n"
 
                     # Display the markdown in a scrollable div
@@ -1174,10 +1877,23 @@ def run_alfworld_evaluation():
                             "✅ SUCCESSFUL" if task_result["success"] else "❌ FAILED"
                         )
                         task_type = task_result["task_type"]
+                        environment = task_result.get(
+                            "environment", "No environment description"
+                        )
+                        evaluation_explanation = task_result.get(
+                            "evaluation_explanation", "No evaluation provided"
+                        )
+
                         o3mini_task_text += f"<div class='task-type-tag'>{task_type}</div> <b>Task {idx+1}</b>: {task_result['task_description']}\n\n"
-                        o3mini_task_text += f"Actions: {', '.join(task_result.get('actions', ['No actions recorded']))}\n\n"
-                        o3mini_task_text += f"Reasoning: {task_result.get('reasoning', 'No reasoning provided')}\n\n"
-                        o3mini_task_text += f"Status: {status}\n\n"
+                        o3mini_task_text += f"<div class='environment-box'><b>Environment:</b><br>{environment}</div>\n\n"
+                        o3mini_task_text += f"<b>Actions:</b> {', '.join(task_result.get('actions', ['No actions recorded']))}\n\n"
+                        o3mini_task_text += f"<b>Reasoning:</b> {task_result.get('reasoning', 'No reasoning provided')}\n\n"
+
+                        if task_result["success"]:
+                            o3mini_task_text += f"<div class='evaluation-box'><b>Evaluation:</b> {status}<br>{evaluation_explanation}</div>\n\n"
+                        else:
+                            o3mini_task_text += f"<div class='evaluation-box-fail'><b>Evaluation:</b> {status}<br>{evaluation_explanation}</div>\n\n"
+
                         o3mini_task_text += "---\n\n"
 
                     # Display the markdown in a scrollable div

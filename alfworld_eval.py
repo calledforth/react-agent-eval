@@ -179,6 +179,155 @@ class ALFWorldEval:
         else:
             return task_name
 
+    def generate_environment_description(
+        self, task: Dict[str, str], agent: Agent
+    ) -> str:
+        """
+        Generate a detailed environment description for a task.
+
+        Args:
+            task (Dict): Task dictionary with task details
+            agent (Agent): Agent to use for generating the environment description
+
+        Returns:
+            String describing the task environment
+        """
+        task_description = self.extract_task_description(task)
+        task_type = task["task_type"]
+
+        print(f"GENERATING ENVIRONMENT DESCRIPTION FOR: {task_description}")
+
+        prompt = f"""
+        Generate a detailed description of the environment for this ALFWorld task: "{task_description}"
+        
+        You need to provide a realistic and detailed description of the room(s), objects, and their locations.
+        Include details about:
+        - What rooms are present (kitchen, living room, bathroom, etc.)
+        - Key objects and furniture in those rooms
+        - Where the objects mentioned in the task can be found
+        - Any containers or appliances that might be needed for the task
+        - Spatial relationships between objects
+        
+        The task type is: {task_type}
+        
+        Be detailed but concise. This will serve as the environment context for an agent trying to complete the task.
+        """
+
+        completion_params = {
+            "model": agent.deployment,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.7,
+            "top_p": 0.95,
+            "frequency_penalty": 0,
+            "presence_penalty": 0,
+            "stop": None,
+            "stream": False,
+        }
+
+        # Use the appropriate parameter based on model
+        if agent.deployment == "o3-mini":
+            completion_params["max_completion_tokens"] = 500
+        else:
+            completion_params["max_tokens"] = 500
+
+        completion = agent.client.chat.completions.create(**completion_params)
+        environment_description = json.loads(completion.to_json())["choices"][0][
+            "message"
+        ]["content"]
+
+        print("ENVIRONMENT DESCRIPTION GENERATED")
+        return environment_description
+
+    def evaluate_agent_actions(
+        self, task_description: str, environment: str, actions: List[str], agent: Agent
+    ) -> Dict[str, Any]:
+        """
+        Evaluate if the agent's actions successfully complete the task.
+
+        Args:
+            task_description (str): Description of the task
+            environment (str): Environment description
+            actions (List[str]): List of actions taken by the agent
+            agent (Agent): Agent to use for evaluation
+
+        Returns:
+            Dict with evaluation results (success, explanation)
+        """
+        print("EVALUATING AGENT ACTIONS EXTERNALLY")
+
+        prompt = f"""
+        You are evaluating whether a sequence of actions successfully completes a household task.
+        
+        TASK DESCRIPTION:
+        {task_description}
+        
+        ENVIRONMENT:
+        {environment}
+        
+        ACTIONS TAKEN:
+        {json.dumps(actions, indent=2)}
+        
+        Evaluate whether these actions would successfully complete the task in the given environment.
+        Consider:
+        1. If all required steps are present
+        2. If actions are in the correct order
+        3. If the actions make reasonable assumptions about the environment
+        4. If any critical actions are missing
+        
+        Return your evaluation in this JSON format:
+        {{
+            "success": true/false,
+            "explanation": "detailed explanation of why the actions succeed or fail"
+        }}
+
+        The available actions are:
+        - look: Look around to observe the environment
+        - move: Move to another location (e.g., "move to kitchen")
+        - take: Take/pick up an object (e.g., "take apple")
+        - place: Place an object somewhere (e.g., "place apple in fridge")
+        - open: Open a container (e.g., "open fridge")
+        - close: Close a container (e.g., "close fridge")
+        - use: Use an appliance or cookware such as pans (e.g., "use microwave")
+        - clean: Clean an object (e.g., "clean apple")
+        - heat: Heat an object (e.g., "heat apple")
+        - cool: Cool an object (e.g., "cool apple")
+
+        So stick to the actions above and do not look for or evaluate based on any other actions.
+        """
+
+        completion_params = {
+            "model": agent.deployment,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3,
+            "top_p": 0.95,
+            "frequency_penalty": 0,
+            "presence_penalty": 0,
+            "stop": None,
+            "stream": False,
+        }
+
+        # Use the appropriate parameter based on model
+        if agent.deployment == "o3-mini":
+            completion_params["max_completion_tokens"] = 600
+        else:
+            completion_params["max_tokens"] = 600
+
+        completion = agent.client.chat.completions.create(**completion_params)
+        raw_response = json.loads(completion.to_json())["choices"][0]["message"][
+            "content"
+        ]
+
+        try:
+            evaluation_result = parse_json_from_response(raw_response)
+            print(f"EVALUATION RESULT: {evaluation_result}")
+            return evaluation_result
+        except ValueError as e:
+            print(f"Error parsing evaluation result: {e}")
+            return {
+                "success": False,
+                "explanation": f"Failed to parse evaluation: {str(e)}",
+            }
+
     def eval_tasks(
         self,
         tasks: List[Dict[str, str]],
@@ -229,6 +378,11 @@ class ALFWorldEval:
             task_description = self.extract_task_description(task)
             print(f"TASK: {task_description}")
 
+            # Generate environment description for the task
+            environment_description = self.generate_environment_description(
+                task, agent_gpt4o
+            )
+
             # Update progress information
             evaluation_results["evaluation_progress"]["current_task"] = index + 1
             evaluation_results["evaluation_progress"]["status"] = "evaluating"
@@ -244,18 +398,38 @@ class ALFWorldEval:
                 ] = "Direct Agent (GPT-4o)"
                 try:
                     print("DIRECT GPT-4O AGENT EVALUATION:")
-                    raw_response = agent_gpt4o.alfworld_chat_direct(task_description)
+
+                    # Include environment description in the prompt
+                    enhanced_task = f"""
+                    Task: {task_description}
+                    
+                    Environment Description:
+                    {environment_description}
+                    
+                    Based on this task and environment, provide a sequence of actions that would complete the task.
+                    """
+
+                    raw_response = agent_gpt4o.alfworld_chat_direct(enhanced_task)
                     direct_response = parse_json_from_response(
                         raw_response["choices"][0]["message"]["content"]
                     )
 
                     direct_actions = direct_response.get("actions", [])
-                    direct_success = direct_response.get("success", False)
                     direct_reasoning = direct_response.get("reasoning", "")
 
                     print(f"\nDIRECT GPT-4O ACTIONS: {direct_actions}")
-                    print(f"SUCCESS: {direct_success}")
                     print(f"REASONING: {direct_reasoning}\n")
+
+                    # External evaluation of actions
+                    evaluation_result = self.evaluate_agent_actions(
+                        task_description,
+                        environment_description,
+                        direct_actions,
+                        agent_gpt4o,
+                    )
+
+                    direct_success = evaluation_result.get("success", False)
+                    direct_explanation = evaluation_result.get("explanation", "")
 
                     if direct_success:
                         print("✅ DIRECT GPT-4O TASK EVALUATION: SUCCESSFUL")
@@ -267,9 +441,11 @@ class ALFWorldEval:
                         {
                             "task_type": task["task_type"],
                             "task_description": task_description,
+                            "environment": environment_description,
                             "actions": direct_actions,
                             "reasoning": direct_reasoning,
                             "success": direct_success,
+                            "evaluation_explanation": direct_explanation,
                         }
                     )
                 except Exception as e:
@@ -278,9 +454,11 @@ class ALFWorldEval:
                         {
                             "task_type": task["task_type"],
                             "task_description": task_description,
+                            "environment": environment_description,
                             "actions": [],
                             "reasoning": str(e),
                             "success": False,
+                            "evaluation_explanation": f"Error: {str(e)}",
                         }
                     )
 
@@ -291,18 +469,38 @@ class ALFWorldEval:
                 ] = "Direct Agent (o3-mini)"
                 try:
                     print("DIRECT O3-MINI AGENT EVALUATION:")
-                    raw_response = agent_o3mini.alfworld_chat_direct(task_description)
+
+                    # Include environment description in the prompt
+                    enhanced_task = f"""
+                    Task: {task_description}
+                    
+                    Environment Description:
+                    {environment_description}
+                    
+                    Based on this task and environment, provide a sequence of actions that would complete the task.
+                    """
+
+                    raw_response = agent_o3mini.alfworld_chat_direct(enhanced_task)
                     o3mini_response = parse_json_from_response(
                         raw_response["choices"][0]["message"]["content"]
                     )
 
                     o3mini_actions = o3mini_response.get("actions", [])
-                    o3mini_success = o3mini_response.get("success", False)
                     o3mini_reasoning = o3mini_response.get("reasoning", "")
 
                     print(f"\nDIRECT O3-MINI ACTIONS: {o3mini_actions}")
-                    print(f"SUCCESS: {o3mini_success}")
                     print(f"REASONING: {o3mini_reasoning}\n")
+
+                    # External evaluation of actions
+                    evaluation_result = self.evaluate_agent_actions(
+                        task_description,
+                        environment_description,
+                        o3mini_actions,
+                        agent_gpt4o,  # Using GPT-4o for evaluation for consistency
+                    )
+
+                    o3mini_success = evaluation_result.get("success", False)
+                    o3mini_explanation = evaluation_result.get("explanation", "")
 
                     if o3mini_success:
                         print("✅ DIRECT O3-MINI TASK EVALUATION: SUCCESSFUL")
@@ -314,9 +512,11 @@ class ALFWorldEval:
                         {
                             "task_type": task["task_type"],
                             "task_description": task_description,
+                            "environment": environment_description,
                             "actions": o3mini_actions,
                             "reasoning": o3mini_reasoning,
                             "success": o3mini_success,
+                            "evaluation_explanation": o3mini_explanation,
                         }
                     )
                 except Exception as e:
@@ -325,9 +525,11 @@ class ALFWorldEval:
                         {
                             "task_type": task["task_type"],
                             "task_description": task_description,
+                            "environment": environment_description,
                             "actions": [],
                             "reasoning": str(e),
                             "success": False,
+                            "evaluation_explanation": f"Error: {str(e)}",
                         }
                     )
 
@@ -337,8 +539,20 @@ class ALFWorldEval:
                     "current_agent"
                 ] = "React Agent"
                 print("\nREACT AGENT EVALUATION:")
-                message = task_description
+
+                # Include environment description in the prompt
+                enhanced_task = f"""
+                Task: {task_description}
+                
+                Environment Description:
+                {environment_description}
+                
+                Complete this task by thinking and taking actions in the environment.
+                """
+
+                message = enhanced_task
                 react_verification_result = None
+                all_actions = []
 
                 for num in range(1, 8):
                     # Update thinking round for UI feedback
@@ -354,6 +568,7 @@ class ALFWorldEval:
                             print(f"THINKING ROUND {num}: {response['thinking']}")
                             action = response["action"]
                             print(f"ACTION ROUND {num} : {action}\n")
+                            all_actions.append(action)
 
                             # Get observation from executing action in environment
                             observation = agent_gpt4o.alfworld_observation_agent(action)
@@ -361,15 +576,21 @@ class ALFWorldEval:
                             continue
 
                         elif "success" in response.keys():
-                            success = response["success"]
-                            actions = response.get("actions", [])
                             reasoning = response.get("reasoning", "")
-
-                            print(f"\nSUCCESS: {success}")
-                            print(f"ACTIONS: {actions}")
                             print(f"REASONING: {reasoning}\n")
 
-                            if success:
+                            # External evaluation of actions
+                            evaluation_result = self.evaluate_agent_actions(
+                                task_description,
+                                environment_description,
+                                all_actions,
+                                agent_gpt4o,
+                            )
+
+                            react_success = evaluation_result.get("success", False)
+                            react_explanation = evaluation_result.get("explanation", "")
+
+                            if react_success:
                                 print("✅ REACT TASK EVALUATION: SUCCESSFUL")
                                 evaluation_results["react_results"][
                                     "successful_tasks"
@@ -386,9 +607,11 @@ class ALFWorldEval:
                                 {
                                     "task_type": task["task_type"],
                                     "task_description": task_description,
-                                    "actions": actions,
+                                    "environment": environment_description,
+                                    "actions": all_actions,
                                     "reasoning": reasoning,
-                                    "success": success,
+                                    "success": react_success,
+                                    "evaluation_explanation": react_explanation,
                                 }
                             )
                             react_verification_result = True
@@ -402,9 +625,11 @@ class ALFWorldEval:
                             {
                                 "task_type": task["task_type"],
                                 "task_description": task_description,
-                                "actions": [],
+                                "environment": environment_description,
+                                "actions": all_actions,
                                 "reasoning": f"Error: {str(e)}",
                                 "success": False,
+                                "evaluation_explanation": f"Error: {str(e)}",
                             }
                         )
                         evaluation_results["evaluation_progress"]["status"] = "error"
@@ -414,14 +639,32 @@ class ALFWorldEval:
                 # If we went through all rounds without getting a success result
                 if react_verification_result is None:
                     print("❌ No result produced after maximum rounds with React agent")
+
+                    # External evaluation of actions collected so far
+                    if all_actions:
+                        evaluation_result = self.evaluate_agent_actions(
+                            task_description,
+                            environment_description,
+                            all_actions,
+                            agent_gpt4o,
+                        )
+
+                        react_success = evaluation_result.get("success", False)
+                        react_explanation = evaluation_result.get("explanation", "")
+                    else:
+                        react_success = False
+                        react_explanation = "No actions were produced by the agent"
+
                     evaluation_results["evaluation_progress"]["status"] = "failed"
                     evaluation_results["react_results"]["task_results"].append(
                         {
                             "task_type": task["task_type"],
                             "task_description": task_description,
-                            "actions": [],
+                            "environment": environment_description,
+                            "actions": all_actions,
                             "reasoning": "No result produced after maximum rounds",
-                            "success": False,
+                            "success": react_success,
+                            "evaluation_explanation": react_explanation,
                         }
                     )
 
