@@ -1,9 +1,9 @@
 import streamlit as st
 import sys
 import datetime
-from hotpotqa_eval import HotpotQAEval, StreamlitPrintCapture
-from fever_eval import FeverEval
-from alfworld_eval import ALFWorldEval
+from hotpotqa.hotpotqa_eval import HotpotQAEval, StreamlitPrintCapture
+from fever.fever_eval import FeverEval
+from alfworld.alfworld_eval import ALFWorldEval
 from history_manager import HistoryManager
 
 # Initialize the history manager
@@ -863,7 +863,9 @@ def run_hotpotqa_evaluation():
                 # Pass the agent selection flags to the eval_questions method
                 original_eval_questions = hotpot_eval.eval_questions
 
-                def eval_questions_with_progress(questions):
+                def eval_questions_with_progress(
+                    questions, use_react=True, use_gpt4o=True, use_o3mini=True
+                ):
                     # Keep the original function's logic but update progress
                     for i, question in enumerate(questions):
                         # Update status with current agent and question
@@ -884,8 +886,10 @@ def run_hotpotqa_evaluation():
                             unsafe_allow_html=True,
                         )
 
-                    # Call original function
-                    return original_eval_questions(questions)
+                    # Call original function with the parameters
+                    return original_eval_questions(
+                        questions, use_react, use_gpt4o, use_o3mini
+                    )
 
                 hotpot_eval.eval_questions = eval_questions_with_progress
 
@@ -1214,7 +1218,9 @@ def run_fever_evaluation():
                 # Capture the original method to monkey patch it
                 original_eval_claims = fever_eval.eval_claims
 
-                def eval_claims_with_progress(claim_label_pairs):
+                def eval_claims_with_progress(
+                    claim_label_pairs, use_react=True, use_gpt4o=True, use_o3mini=True
+                ):
                     # Let the original function handle everything
                     for i, (claim, _) in enumerate(claim_label_pairs):
                         # Update status with current agent and claim
@@ -1235,6 +1241,7 @@ def run_fever_evaluation():
                             unsafe_allow_html=True,
                         )
 
+                    # Call the original function with the parameters
                     result = original_eval_claims(
                         claim_label_pairs, use_react, use_gpt4o, use_o3mini
                     )

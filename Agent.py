@@ -9,6 +9,10 @@ load_dotenv()
 
 
 class Agent:
+    """
+    A class to interact with the Azure OpenAI API for various tasks using various Agents.
+    """
+
     def __init__(self, model_name="gpt-4o"):
         self.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
         self.deployment = model_name  # Can be "gpt-4o" or "o3-mini"
