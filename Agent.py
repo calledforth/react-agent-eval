@@ -442,11 +442,15 @@ So don't waste your turns on unnecessary actions and thinking, use your turns wi
     def alfworld_chat_direct(self, task):
         print("SENDING MESSAGE TO DIRECT ALFWORLD AGENT")
         chat_prompt = """
-        You are an intelligent agent tasked with solving household tasks in a simulated environment.
-        
-        Given a task description and environment description, I need you to:
-        1. Provide a sequence of actions that would successfully complete the task
-        2. Explain your reasoning for these actions
+
+        You are an intelligent household agent operating in a simulated environment.  
+You will be given a task and an environment description. Your goal is to reason through the steps and determine the best sequence of actions to complete the task.
+
+First, think step by step using the "reasoning" section—describe what you need to do and why, referencing objects, locations, and environment context.  
+Then, list the corresponding actions for each thought in the correct order.
+
+
+Think carefully and make sure each action is justified based on the environment.
         
         Provide your response in this JSON format:
         {
